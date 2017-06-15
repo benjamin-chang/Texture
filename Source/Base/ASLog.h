@@ -17,6 +17,8 @@
 
 #import <AsyncDisplayKit/ASAvailability.h>
 #import <Foundation/Foundation.h>
+#import <os/log.h>
+#import <os/activity.h>
 
 /// The signposts we use. Signposts are grouped by color. The SystemTrace.tracetemplate file
 /// should be kept up-to-date with these values.
@@ -56,6 +58,45 @@ static inline ASSignpostColor ASSignpostGetColor(ASSignpostName name, ASSignpost
   }
 }
 
+/**
+ * The activity tracing system changed a lot between iOS 9 and 10.
+ * In iOS 10, the system was merged with logging and became much more powerful
+ * and adopted a new API.
+ *
+ * The legacy API is visible, but its functionality is limited.
+ * For example, activities described by os_activity_start/end are not
+ * reflected in the log whereas activities described by the newer
+ * os_activity_scope are. So unfortunately we must use these iOS 10
+ * APIs to get meaningful logging data.
+ */
+#if OS_LOG_TARGET_HAS_10_12_FEATURES
+
+#define OS_ACTIVITY_NULLABLE nullable
+#define as_activity_scope(activity) os_activity_scope(activity)
+#define as_activity_apply(activity, block) os_activity_apply(activity, block)
+#define as_activity_create(description, parent_activity, flags) os_activity_create(description, parent_activity, flags)
+
+// Log the current backtrace. Note: the backtrace will be leaked. Only call this when debugging or in case of failure.
+#define as_log_backtrace(type, log) os_log_with_type(log, type, "backtrace: %p", CFBridgingRetain(NSThread.callStackSymbols));
+
+#else
+
+#define OS_ACTIVITY_NULLABLE
+#define as_activity_scope(activity)
+#define as_activity_apply(activity, block)
+#define as_activity_create(description, parent_activity, flags) (os_activity_t)0
+#define as_log_backtrace(type, log)
+
+#endif
+
+#define as_log_create(subsystem, category) AS_AT_LEAST_IOS9 ? os_log_create(subsystem, category) : (os_log_t)0
+#define as_log_debug(log, format, ...) AS_AT_LEAST_IOS9 ? os_log_debug(log, format, ##__VA_ARGS__) : (void)0
+#define as_log_info(log, format, ...) AS_AT_LEAST_IOS9 ? os_log_info(log, format, ##__VA_ARGS__) : (void)0
+#define as_log_error(log, format, ...) AS_AT_LEAST_IOS9 ? os_log_error(log, format, ##__VA_ARGS__) : (void)0
+#define as_log_fault(log, format, ...) AS_AT_LEAST_IOS9 ? os_log_fault(log, format, ##__VA_ARGS__) : (void)0
+static os_log_t ASLayoutLog;
+static os_log_t ASRenderLog;
+static os_log_t ASCollectionLog;
 #define ASMultiplexImageNodeLogDebug(...)
 #define ASMultiplexImageNodeCLogDebug(...)
 

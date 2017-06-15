@@ -800,6 +800,8 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
   
   if (_batchUpdateCount == 0) {
     _changeSet = [[_ASHierarchyChangeSet alloc] initWithOldData:[_dataController itemCountsFromDataSource]];
+    _changeSet.rootActivity = as_activity_create("collectionUpdate", OS_ACTIVITY_CURRENT, OS_ACTIVITY_FLAG_DEFAULT);
+    _changeSet.submitActivity = as_activity_create("collectionUpdateSubmit", _changeSet.rootActivity, OS_ACTIVITY_FLAG_DEFAULT);
   }
   _batchUpdateCount++;  
 }
@@ -817,6 +819,7 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
   
   if (_batchUpdateCount == 0) {
     _ASHierarchyChangeSet *changeSet = _changeSet;
+
     // Nil out _changeSet before forwarding to _dataController to allow the change set to cause subsequent batch updates on the same run loop
     _changeSet = nil;
     changeSet.animated = animated;
@@ -828,8 +831,16 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
 {
   ASDisplayNodeAssertMainThread();
   [self beginUpdates];
-  if (updates) {
-    updates();
+  BOOL isRootPerform = _batchUpdateCount == 1;
+  as_activity_scope(_changeSet.rootActivity);
+  if (isRootPerform) {
+    as_log_debug(ASCollectionLog, "Node: %@", self.collectionNode);
+  }
+  {
+    as_activity_scope(_changeSet.submitActivity);
+    if (updates) {
+      updates();
+    }
   }
   [self endUpdatesAnimated:animated completion:completion];
 }
@@ -1475,6 +1486,7 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
 
 - (void)layoutSubviews
 {
+  as_activity_scope(as_activity_create("-[ASCollectionView layoutSubviews]", OS_ACTIVITY_CURRENT, OS_ACTIVITY_FLAG_DEFAULT));
   if (_cellsForLayoutUpdates.count > 0) {
     NSMutableArray<ASCellNode *> *nodesSizesChanged = [NSMutableArray array];
     [_dataController relayoutNodes:_cellsForLayoutUpdates nodesSizeChanged:nodesSizesChanged];
@@ -1575,6 +1587,7 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
 
 - (void)_beginBatchFetching
 {
+  as_activity_scope(as_activity_create("[collectionNode beginBatchFetching]", OS_ACTIVITY_CURRENT, OS_ACTIVITY_FLAG_DEFAULT));
   [_batchContext beginBatchFetching];
   if (_asyncDelegateFlags.collectionNodeWillBeginBatchFetch) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{

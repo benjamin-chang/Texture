@@ -167,6 +167,9 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCollectionElement *> *
   for (NSUInteger i = 0; i < count; i += batchSize) {
     NSRange batchedRange = NSMakeRange(i, MIN(count - i, batchSize));
     NSArray<ASCollectionElement *> *batchedElements = [elements subarrayWithRange:batchedRange];
+    as_activity_scope(as_activity_create("Data controller batch", OS_ACTIVITY_CURRENT, OS_ACTIVITY_FLAG_DEFAULT));
+    as_log_debug(ASCollectionLog, "%@", ASObjectDescriptionMakeTiny(_dataSource));
+    as_log_debug(ASCollectionLog, "Node count: %lu", (unsigned long)batchedElements.count);
     NSArray<ASCellNode *> *nodes = [self _allocateNodesFromElements:batchedElements andLayout:shouldLayout];
     batchCompletionHandler(batchedElements, nodes);
   }
@@ -500,6 +503,7 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCollectionElement *> *
   // See ASUICollectionViewTests.testThatIssuingAnUpdateBeforeInitialReloadIsUnacceptable
   // for the issue that UICollectionView has that we're choosing to workaround.
   if (!_initialReloadDataHasBeenCalled) {
+    as_log_debug(ASCollectionLog, "%@ Skipped update because load hasn't happened.", ASObjectDescriptionMakeTiny(_dataSource));
     [changeSet executeCompletionHandlerWithFinished:YES];
     return;
   }
@@ -540,27 +544,34 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCollectionElement *> *
   }
 
   // Mutable copy of current data.
-  ASElementMap *previousMap = _pendingMap;
-  ASMutableElementMap *mutableMap = [previousMap mutableCopy];
-  
-  BOOL canDelegateLayout = (_layoutDelegate != nil);
+  BOOL canDelegateLayout;
+  ASElementMap *newMap;
+  id layoutContext;
+  {
+    as_activity_scope(as_activity_create("collectionUpdateLatchNewData", OS_ACTIVITY_CURRENT, OS_ACTIVITY_FLAG_DEFAULT));
+    as_log_debug(ASCollectionLog, "ChangeSet: %@", changeSet);
+    ASElementMap *previousMap = _pendingMap;
+    ASMutableElementMap *mutableMap = [previousMap mutableCopy];
 
-  // Step 1: Update the mutable copies to match the data source's state
-  [self _updateSectionContextsInMap:mutableMap changeSet:changeSet];
-  ASPrimitiveTraitCollection existingTraitCollection = [self.node primitiveTraitCollection];
-  [self _updateElementsInMap:mutableMap changeSet:changeSet traitCollection:existingTraitCollection shouldFetchSizeRanges:(! canDelegateLayout) previousMap:previousMap];
-  
-  // Step 2: Clone the new data
-  ASElementMap *newMap = [mutableMap copy];
-  self.pendingMap = newMap;
-  
-  // Step 3: Ask layout delegate for contexts
-  id layoutContext = nil;
-  if (canDelegateLayout) {
-    layoutContext = [_layoutDelegate layoutContextWithElements:newMap];
+    canDelegateLayout = (_layoutDelegate != nil);
+
+    // Step 1: Update the mutable copies to match the data source's state
+    [self _updateSectionContextsInMap:mutableMap changeSet:changeSet];
+    ASPrimitiveTraitCollection existingTraitCollection = [self.node primitiveTraitCollection];
+    [self _updateElementsInMap:mutableMap changeSet:changeSet traitCollection:existingTraitCollection shouldFetchSizeRanges:(! canDelegateLayout) previousMap:previousMap];
+
+    // Step 2: Clone the new data
+    newMap = [mutableMap copy];
+    self.pendingMap = newMap;
+
+    // Step 3: Ask layout delegate for contexts
+    if (canDelegateLayout) {
+      layoutContext = [_layoutDelegate layoutContextWithElements:newMap];
+    }
   }
   
   dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
+    as_activity_scope(as_activity_create("collectionUpdatePrepare", OS_ACTIVITY_CURRENT, OS_ACTIVITY_FLAG_DEFAULT));
     // Step 4: Allocate and layout elements if can't delegate
     NSArray<ASCollectionElement *> *elementsToProcess;
     if (canDelegateLayout) {
@@ -581,8 +592,9 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCollectionElement *> *
       if (canDelegateLayout) {
         [_layoutDelegate prepareLayoutWithContext:layoutContext];
       }
-      
+
       [_mainSerialQueue performBlockOnMainThread:^{
+        as_activity_scope(as_activity_create("collectionUpdateCommit", changeSet.rootActivity, OS_ACTIVITY_FLAG_DEFAULT));
         [_delegate dataController:self willUpdateWithChangeSet:changeSet];
 
         // Step 5: Deploy the new data as "completed" and inform delegate

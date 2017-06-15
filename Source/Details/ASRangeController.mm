@@ -203,6 +203,8 @@ static UIApplicationState __ApplicationState = UIApplicationStateActive;
 
 - (void)_updateVisibleNodeIndexPaths
 {
+  as_activity_scope(as_activity_create("ASRangeControllerUpdate", OS_ACTIVITY_CURRENT, OS_ACTIVITY_FLAG_DEFAULT));
+  as_log_debug(ASCollectionLog, "node: %@", self.delegate);
   ASDisplayNodeAssert(_layoutController, @"An ASLayoutController is required by ASRangeController");
   if (!_layoutController || !_dataSource) {
     return;

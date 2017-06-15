@@ -107,7 +107,7 @@ ASSizeRange ASSizeRangeIntersect(ASSizeRange sizeRange, ASSizeRange otherSizeRan
 
 NSString *NSStringFromASSizeRange(ASSizeRange sizeRange)
 {
-  return [NSString stringWithFormat:@"<ASSizeRange: min=%@, max=%@>",
+  return [NSString stringWithFormat:@"{%@, %@}",
           NSStringFromCGSize(sizeRange.min),
           NSStringFromCGSize(sizeRange.max)];
 }
